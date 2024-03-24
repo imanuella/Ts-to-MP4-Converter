@@ -1,6 +1,7 @@
 # Ts-to-MP4-Converter
-Convert .Ts video file to .mp4 file using ffmpeg
 
-This program can convert .ts videos in bulk and also convert files in subdirectory folders.
+Convert .ts video files to .mp4 format using ffmpeg.
 
-To convert using the GPU with FFmpeg, you can run gpu.py
+This program allows you to convert .ts videos in bulk, including files within subdirectory folders.
+
+To utilize GPU acceleration with FFmpeg, you can run `gpu.py`.
