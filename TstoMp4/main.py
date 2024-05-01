@@ -4,8 +4,12 @@
 import os
 import shlex
 import urllib.request
-import tempfile
+import subprocess
+import re
+import datetime
+import tempfile  # Importing tempfile module for creating temporary directories
 
+from tqdm import tqdm  # Importing tqdm for progress bar
 
 # Function to download file from URL
 def download_file(url):
@@ -13,11 +17,22 @@ def download_file(url):
     file_name = os.path.basename(url)
     file_path = os.path.join(temp_dir, file_name)
     try:
-        urllib.request.urlretrieve(url, file_path)
+        # Open the URL for reading
+        with urllib.request.urlopen(url) as response:
+            # Get the file size from the HTTP response headers
+            file_size = int(response.info().get('Content-Length', -1))
+            # Create a progress bar with the expected file size
+            with tqdm.wrapattr(open(file_path, "wb"), "write", miniters=1,
+                               total=file_size, desc=file_name) as fout:
+                # Read data in chunks and update the progress bar
+                for data in response:
+                    fout.write(data)
+                    fout.flush()
         return file_path
     except Exception as e:
         print("Error downloading file:", e)
         return None
+
 
 
 # Function to convert a file using FFmpeg
@@ -36,15 +51,45 @@ def convert_file(input_path, output_path):
         return
 
     ffmpeg_command = 'ffmpeg -i "{}" "{}"'.format(input_path, output_path)
-    exit_code = os.system(ffmpeg_command)
 
-    if exit_code == 0:
-        print('Converted: "{}"'.format(input_path))
-        return True
-    else:
-        print('Failed to convert: "{}"'.format(input_path))
+    try:
+        # Open a subprocess to execute FFmpeg command
+        process = subprocess.Popen(
+            shlex.split(ffmpeg_command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Read FFmpeg output and track progress
+        with tqdm(total=100, unit='%', desc="Converting {}".format(input_path)) as pbar:
+            duration = None
+            for line in process.stderr:
+                line = line.decode("utf-8")
+                if "Duration" in line:
+                    duration_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", line)
+                    if duration_match:
+                        hours, minutes, seconds, microseconds = map(int, duration_match.groups())
+                        duration = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds, microseconds=microseconds)
+                if "frame=" in line:
+                    frame_match = re.search(r"(\d+)\s*fps", line)
+                    if frame_match and duration:
+                        frame = int(frame_match.group(1))
+                        duration_seconds = duration.total_seconds()
+                        pbar.update(min(frame / (duration_seconds * 25), 1) * 100)  # Cap the progress at 100%
+
+        process.communicate()  # Wait for FFmpeg process to finish
+        exit_code = process.returncode
+
+        if exit_code == 0:
+            print('Converted: "{}"'.format(input_path))
+            return True
+        else:
+            print('Failed to convert: "{}"'.format(input_path))
+            return False
+
+    except Exception as e:
+        print("Error during conversion:", e)
         return False
-
 
 # Prompt the user to choose the input source
 source_choice = input("Choose input source (1 - Directory, 2 - URL): ")
